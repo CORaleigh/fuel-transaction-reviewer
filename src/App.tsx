@@ -30,6 +30,8 @@ import type PortalUser from "@arcgis/core/portal/PortalUser";
 import type Graphic from "@arcgis/core/Graphic";
 import type { SelectableLayerWithObjectIds } from "@arcgis/core/views/selection/types";
 import type { ChartModel, WebChart } from "@arcgis/charts-components";
+import { whenOnce } from "@arcgis/core/core/reactiveUtils.js";
+
 function App() {
   /// ref
   const mapRef = useRef<HTMLArcgisMapElement>(null);
@@ -45,10 +47,14 @@ function App() {
   const [selectedAction, setSelectedAction] = useState<"edit" | "statistics">(
     "edit",
   );
+  const [statuses, setStatuses] = useState<string[] | undefined>([]);
+  const [reasons, setReasons] = useState<string[] | undefined>([]);
 
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([
     "Needs Review",
   ]);
+
+  const [selectedReasons, setSelectedReasons] = useState<string[]>([]);
 
   /// effects
   useEffect(() => {
@@ -69,19 +75,44 @@ function App() {
     });
   }, []);
 
+  // useEffect(() => {
+  //   if (featureTableRef.current?.layer) {
+  //     (featureTableRef.current.layer as FeatureLayer).definitionExpression =
+  //       selectedStatuses.length > 0
+  //         ? `compliance in (${selectedStatuses.map((s) => `'${s}'`).join(", ")})`
+  //         : "1=1";
+  //   }
+  // }, [selectedStatuses]);
   useEffect(() => {
     if (featureTableRef.current?.layer) {
       (featureTableRef.current.layer as FeatureLayer).definitionExpression =
-        selectedStatuses.length > 0
-          ? `compliance in (${selectedStatuses.map((s) => `'${s}'`).join(", ")})`
-          : "1=1";
+        selectedReasons.length > 0 && selectedStatuses.length > 0
+          ? `compliance_reason in (${selectedReasons.map((s) => `'${s}'`).join(", ")}) AND compliance in (${selectedStatuses.map((s) => `'${s}'`).join(", ")})`
+          : selectedReasons.length > 0 && selectedStatuses.length === 0
+            ? `compliance_reason in (${selectedReasons.map((s) => `'${s}'`).join(", ")})`
+            : selectedReasons.length === 0 && selectedStatuses.length > 0
+              ? `compliance in (${selectedStatuses.map((s) => `'${s}'`).join(", ")})`
+              : "compliance is null";
     }
-  }, [selectedStatuses]);
-
+  }, [selectedReasons, selectedStatuses]);
   /// Functions
-  const handleDropdownItemSelect = (event: HTMLCalciteDropdownItemElement["calciteDropdownItemSelect"]) => {
+  const handleDropdownItemSelect = (
+    event: HTMLCalciteDropdownItemElement["calciteDropdownItemSelect"],
+  ) => {
     const key = event.target.textContent ?? "";
     setSelectedStatuses((prev) => {
+      const updated = prev.includes(key)
+        ? prev.filter((s) => s !== key)
+        : [...prev, key];
+      return updated;
+    });
+  };
+
+  const handleReasonDropdownItemSelect = (
+    event: HTMLCalciteDropdownItemElement["calciteDropdownItemSelect"],
+  ) => {
+    const key = event.target.textContent ?? "";
+    setSelectedReasons((prev) => {
       const updated = prev.includes(key)
         ? prev.filter((s) => s !== key)
         : [...prev, key];
@@ -182,31 +213,56 @@ function App() {
     });
   };
 
+  const getStatuses = async (transactionLayer: FeatureLayer) => {
+    await whenOnce(() => transactionLayer.loaded);
+    const field = transactionLayer.fields.find(
+      (field) => field.name === "compliance",
+    );
+    if (!field || !field.domain) return;
+    if (field.domain.type !== "coded-value") return;
+    const codedValues = field.domain.codedValues.map((cv) => cv.code);
+    return codedValues as string[];
+  };
+
+  const getReasons = async (transactionLayer: FeatureLayer) => {
+    await whenOnce(() => transactionLayer.loaded);
+    const results = await transactionLayer.queryFeatures({
+      where: "compliance_reason is not null",
+      outFields: ["compliance_reason"],
+      orderByFields: ["compliance_reason"],
+      returnDistinctValues: true,
+    });
+    return results.features.map((feature) =>
+      feature.getAttribute("compliance_reason"),
+    );
+  };
   /// Handle when map view is ready
-  const handleViewReadyChange = (
-    event: HTMLArcgisMapElement["arcgisViewReadyChange"],
-  ) => {
-    transactionLayerRef.current = event.currentTarget.map?.layers.find(
+  const handleViewReadyChange = async () => {
+    if (!mapRef.current) return;
+    transactionLayerRef.current = mapRef.current.map?.layers.find(
       (layer: Layer) => layer.title === "Fuel Transaction Raleigh Water Review",
     ) as FeatureLayer | undefined;
-    const history = event.currentTarget.map?.layers.find(
+    const history = mapRef.current.map?.layers.find(
       (layer) => layer.title === "Vehicle Fleet Services Location History",
     ) as FeatureLayer | undefined;
     if (!history) return;
     history.listMode = "hide";
     if (!transactionLayerRef.current) return;
     transactionLayerRef.current.dateFieldsTimeZone = "utc";
-
+    setStatuses(await getStatuses(transactionLayerRef.current));
+    setReasons(await getReasons(transactionLayerRef.current));
     if (
       transactionLayerRef.current &&
       editorRef.current &&
       featureTableRef.current &&
       chartRef.current
     ) {
-      editorRef.current.referenceElement = event.currentTarget;
-      chartRef.current.view = event.currentTarget.view;
+      editorRef.current.referenceElement = mapRef.current;
+      chartRef.current.view = mapRef.current?.view;
       chartRef.current.layer = transactionLayerRef.current;
-      chartRef.current.model = transactionLayerRef.current.charts?.at(0) as ChartModel | WebChart;
+      chartRef.current.model = transactionLayerRef.current.charts?.at(0) as
+        | ChartModel
+        | WebChart;
       editorRef.current.layerInfos = [
         {
           layer: transactionLayerRef.current as FeatureLayer,
@@ -214,12 +270,11 @@ function App() {
       ];
       featureTableRef.current.layer =
         transactionLayerRef.current as FeatureLayer;
-      transactionLayerRef.current.definitionExpression =
-        "compliance = 'Needs Review'";
+      transactionLayerRef.current.definitionExpression = `compliance in (${selectedStatuses.map((s) => `'${s}'`).join(", ")})`;
     }
 
     selectionMangerRef.current = new SelectionManager({
-      view: event.currentTarget.view,
+      view: mapRef.current.view,
       sources: [transactionLayerRef.current as FeatureLayer],
     });
     configureSelectionManager(selectionMangerRef.current, history);
@@ -253,7 +308,6 @@ function App() {
       }
     }
   };
-
 
   ///Handle selection changes in the feature table
   const handleTableSelectionChange = (
@@ -347,40 +401,53 @@ function App() {
             onarcgisPropertyChange={handlePopupPropertyChange}
           ></arcgis-popup>
           <div slot="bottom-left">
-            <calcite-dropdown
-              label={"Select compliance status"}
-              selection-mode="multiple"
-              placement="top-end"
-            >
-              <calcite-button slot="trigger" appearance="solid" iconEnd="chevron-up">
-                Select compliance status
-              </calcite-button>
-
-              <calcite-dropdown-item
-                selected={selectedStatuses.includes("Needs Review")}
-                oncalciteDropdownItemSelect={handleDropdownItemSelect}
+            <div style={{ display: "flex", flexDirection: "column" }}>
+              <calcite-dropdown
+                label={"Select compliance status"}
+                selection-mode="multiple"
+                placement="top-end"
+                style={{ marginBottom: "1em" }}
               >
-                Needs Review
-              </calcite-dropdown-item>
-              <calcite-dropdown-item
-                selected={selectedStatuses.includes("Compliant")}
-                oncalciteDropdownItemSelect={handleDropdownItemSelect}
+                <calcite-button
+                  slot="trigger"
+                  appearance="solid"
+                  iconEnd="chevron-up"
+                >
+                  Select compliance status
+                </calcite-button>
+                {statuses?.map((status) => (
+                  <calcite-dropdown-item
+                    selected={selectedStatuses.includes(status)}
+                    oncalciteDropdownItemSelect={handleDropdownItemSelect}
+                    key={status}
+                  >
+                    {status}
+                  </calcite-dropdown-item>
+                ))}
+              </calcite-dropdown>
+              <calcite-dropdown
+                label={"Select compliance reasons"}
+                selection-mode="multiple"
+                placement="top-end"
               >
-                Compliant
-              </calcite-dropdown-item>
-              <calcite-dropdown-item
-                selected={selectedStatuses.includes("Non-Compliant")}
-                oncalciteDropdownItemSelect={handleDropdownItemSelect}
-              >
-                Non-Compliant
-              </calcite-dropdown-item>
-              <calcite-dropdown-item
-                selected={selectedStatuses.includes("Undetermined")}
-                oncalciteDropdownItemSelect={handleDropdownItemSelect}
-              >
-                Undetermined
-              </calcite-dropdown-item>
-            </calcite-dropdown>
+                <calcite-button
+                  slot="trigger"
+                  appearance="solid"
+                  iconEnd="chevron-up"
+                >
+                  Select compliance reasons
+                </calcite-button>
+                {reasons?.map((reason) => (
+                  <calcite-dropdown-item
+                    selected={selectedReasons.includes(reason)}
+                    oncalciteDropdownItemSelect={handleReasonDropdownItemSelect}
+                    key={reason}
+                  >
+                    {reason}
+                  </calcite-dropdown-item>
+                ))}
+              </calcite-dropdown>
+            </div>
           </div>
         </arcgis-map>
         <calcite-shell-panel slot="panel-bottom" style={{ height: "300px" }}>
