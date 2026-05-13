@@ -214,7 +214,6 @@ function App() {
   };
 
   const getStatuses = async (transactionLayer: FeatureLayer) => {
-    await whenOnce(() => transactionLayer.loaded);
     const field = transactionLayer.fields.find(
       (field) => field.name === "compliance",
     );
@@ -225,7 +224,6 @@ function App() {
   };
 
   const getReasons = async (transactionLayer: FeatureLayer) => {
-    await whenOnce(() => transactionLayer.loaded);
     const results = await transactionLayer.queryFeatures({
       where: "compliance_reason is not null",
       outFields: ["compliance_reason"],
@@ -248,7 +246,9 @@ function App() {
     if (!history) return;
     history.listMode = "hide";
     if (!transactionLayerRef.current) return;
+
     transactionLayerRef.current.dateFieldsTimeZone = "utc";
+    await whenOnce(() => transactionLayerRef.current?.loaded);
     setStatuses(await getStatuses(transactionLayerRef.current));
     setReasons(await getReasons(transactionLayerRef.current));
     if (
@@ -271,6 +271,7 @@ function App() {
       featureTableRef.current.layer =
         transactionLayerRef.current as FeatureLayer;
       transactionLayerRef.current.definitionExpression = `compliance in (${selectedStatuses.map((s) => `'${s}'`).join(", ")})`;
+
     }
 
     selectionMangerRef.current = new SelectionManager({
@@ -366,7 +367,7 @@ function App() {
           <calcite-panel
             style={{
               display: selectedAction === "edit" ? "block" : "none",
-              height: "100%",
+              maxHeight: "calc(100vh - 65px)",
             }}
           >
             <calcite-notice open={showEditingNotice} style={{ width: "100%" }}>
@@ -376,8 +377,28 @@ function App() {
               ref={editorRef}
               hideCreateFeaturesSection
               hideEditFeaturesSection
-              style={{ height: "100%" }}
               hideSettingsMenu
+              style={{ maxHeight: "calc(100vh - 65px)" }}
+              hideZoomToButton
+              onarcgisReady={() => {
+                const observer = new MutationObserver(() => {
+                  const content = editorRef.current?.shadowRoot?.querySelector(
+                    ".esri-widget--panel",
+                  );
+                  if (content) {
+                    (content as HTMLElement).style.maxHeight =
+                      "calc(100vh - 65px)";
+                    observer.disconnect();
+                  }
+                });
+
+                if (editorRef.current?.shadowRoot) {
+                  observer.observe(editorRef.current.shadowRoot, {
+                    childList: true,
+                    subtree: true,
+                  });
+                }
+              }}
             ></arcgis-editor>
           </calcite-panel>
 
@@ -457,6 +478,7 @@ function App() {
             syncViewSelection
             multipleSelectionDisabled
             onarcgisSelectionChange={handleTableSelectionChange}
+     
           ></arcgis-feature-table>
         </calcite-shell-panel>
         <calcite-alert

@@ -8,3 +8,8 @@ calcite-shell
   width: 100vw;
   --calcite-color-brand: #4c8c2b;
 }
+
+
+.esri-editor__panel-content {
+  max-height: calc(100vh - 220px);
+}
