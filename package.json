@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@arcgis/charts-components": "^5.0.19",
     "@arcgis/map-components": "^5.0.19",
     "react": "^19.2.6",
     "react-dom": "^19.2.6"

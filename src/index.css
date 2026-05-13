@@ -6,4 +6,5 @@ calcite-shell
   height: 100vh;
   margin: 0;
   width: 100vw;
+  --calcite-color-brand: #4c8c2b;
 }
