@@ -31,6 +31,7 @@ import type Graphic from "@arcgis/core/Graphic";
 import type { SelectableLayerWithObjectIds } from "@arcgis/core/views/selection/types";
 import type { ChartModel, WebChart } from "@arcgis/charts-components";
 import { whenOnce } from "@arcgis/core/core/reactiveUtils.js";
+import type FeatureLayerView from "@arcgis/core/views/layers/FeatureLayerView";
 
 function App() {
   /// ref
@@ -271,7 +272,6 @@ function App() {
       featureTableRef.current.layer =
         transactionLayerRef.current as FeatureLayer;
       transactionLayerRef.current.definitionExpression = `compliance in (${selectedStatuses.map((s) => `'${s}'`).join(", ")})`;
-
     }
 
     selectionMangerRef.current = new SelectionManager({
@@ -477,8 +477,38 @@ function App() {
             style={{ height: "100%" }}
             syncViewSelection
             multipleSelectionDisabled
+            hideMenuItemsExportSelectionToCsv
+            hideMenuItemsRefreshData
             onarcgisSelectionChange={handleTableSelectionChange}
-     
+            menuConfig={{
+              items: [
+                {
+                  label: "Export",
+                  icon: "download",
+                  clickFunction: async () => {
+                    if (!featureTableRef.current) return;
+                    const oids = await (
+                      featureTableRef.current.layerView as FeatureLayerView
+                    ).queryObjectIds();
+                    console.log(oids);
+                    featureTableRef.current.multipleSelectionDisabled = false;
+                    featureTableRef.current.removeEventListener(
+                      "arcgisSelectionChange",
+                      handleTableSelectionChange,
+                    );
+
+                    featureTableRef.current.highlightIds.addMany(oids);
+                    await featureTableRef.current.exportSelectionToCSV(false);
+                    featureTableRef.current.multipleSelectionDisabled = true;
+                    featureTableRef.current.highlightIds.removeAll();
+                    featureTableRef.current.addEventListener(
+                      "arcgisSelectionChange",
+                      handleTableSelectionChange,
+                    );
+                  },
+                },
+              ],
+            }}
           ></arcgis-feature-table>
         </calcite-shell-panel>
         <calcite-alert
