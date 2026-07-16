@@ -31,7 +31,6 @@ import type Graphic from "@arcgis/core/Graphic";
 import type { SelectableLayerWithObjectIds } from "@arcgis/core/views/selection/types";
 import type { ChartModel, WebChart } from "@arcgis/charts-components";
 import { whenOnce } from "@arcgis/core/core/reactiveUtils.js";
-import type FeatureLayerView from "@arcgis/core/views/layers/FeatureLayerView";
 
 function App() {
   /// ref
@@ -488,7 +487,7 @@ function App() {
                   clickFunction: async () => {
                     if (!featureTableRef.current) return;
                     const oids = await (
-                      featureTableRef.current.layerView as FeatureLayerView
+                      featureTableRef.current.layer as FeatureLayer
                     ).queryObjectIds();
                     console.log(oids);
                     featureTableRef.current.multipleSelectionDisabled = false;
